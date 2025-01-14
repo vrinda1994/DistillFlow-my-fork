@@ -8,9 +8,9 @@ from trl import SFTConfig
 
 import s3_utils
 from distillflow.common import get_current_device
-from distillflow.distill_datasets.dataset_args import DatasetArgs, DataArgs
-from distillflow.distill_datasets.loader import get_dataset
-from distillflow.distill_datasets.template import ShareGpt, Alpaca, ShareGptArgs, AlpacaArgs
+from distillflow.datasets.dataset_args import DatasetArgs, DataArgs
+from distillflow.datasets.loader import get_dataset
+from distillflow.datasets.template import ShareGpt, Alpaca, ShareGptArgs, AlpacaArgs
 from distillflow.model.args import ModelArguments
 from distillflow.model.finetuning_args import FinetuningArguments
 from distillflow.model.loader import load_model, load_tokenizer
@@ -44,7 +44,7 @@ def main():
 
     # Load student model
     student_model_args = ModelArguments(**config["student_model"])
-    student_model = load_model(student_model_args, finetuning_args=FinetuningArguments(finetuning_type='full'),
+    student_model = load_model(student_model_args, finetuning_args=FinetuningArguments(),
                                is_trainable=True)
 
     # Load teacher model
@@ -58,6 +58,8 @@ def main():
 
     # print(teacher_model.config)
     # exit()
+    teacher_model_args = ModelArguments(**config["teacher_model"])
+    teacher_model = load_model(teacher_model_args, finetuning_args=FinetuningArguments(), is_trainable=False)
 
     #TODO: hugging face recommends another way for placing models on a device. Check this again!
     # student_model = student_model.to(device)
@@ -79,7 +81,6 @@ def main():
     # Load tokenizer and dataset
     tokenizer_template = config.get("tokenizer", {}).get("template", None)
     tokenizer = load_tokenizer(student_model_args, template=tokenizer_template)["tokenizer"]
-    # tokenizer.
 
     print(tokenizer)
 
@@ -113,8 +114,8 @@ def main():
         trainer = accelerator.prepare(trainer)
 
     # Train model
-    trainer_stats = trainer.train()
-
+    trainer_stats = trainer.train(resume_from_checkpoint=config["distill"]["sft_config"]["resume_from_checkpoint"])
+    print(trainer_stats)
     trainer.save_model(config["distill"]["sft_config"]["output_dir"])
 
     # upload to s3

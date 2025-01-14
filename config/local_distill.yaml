@@ -1,14 +1,14 @@
 student_model:
-  model_name_or_path: HuggingFaceTB/SmolLM2-135M-Instruct
-#  model_name_or_path: Qwen/Qwen2-0.5B
+#  model_name_or_path: HuggingFaceTB/SmolLM2-135M-Instruct
+  model_name_or_path: Qwen/Qwen2-0.5B
   flash_attn: fa2
   use_unsloth: false
   output_attentions: true
 #  enable_liger_kernel: true
 
 teacher_model:
-  model_name_or_path: HuggingFaceTB/SmolLM2-360M-Instruct
-#  model_name_or_path: Qwen/Qwen2-1.5B
+#  model_name_or_path: HuggingFaceTB/SmolLM2-360M-Instruct
+  model_name_or_path: Qwen/Qwen2-1.5B
   flash_attn: fa2
   use_unsloth: false
   output_attentions: true
@@ -17,11 +17,10 @@ teacher_model:
 #  quantization_method: gptq
 
 data:
-  seed: 0
+  seed: 42
   text_field: "text"
   train_datasets:
     - path: mlabonne/FineTome-100k
-      seed: 42
       template: sharegpt
       num_samples: 100
   test_size: 0.2
@@ -31,7 +30,7 @@ tokenizer:
   template: "{% for message in messages %}{% if loop.first and messages[0]['role'] != 'system' %}{{ '<|im_start|>system\nYou are a helpful assistant.<|im_end|>\n' }}{% endif %}{{'<|im_start|>' + message['role'] + '\n' + message['content'] + '<|im_end|>' + '\n'}}{% endfor %}{% if add_generation_prompt %}{{ '<|im_start|>assistant\n' }}{% endif %}"
 
 distill:
-  type: layers
+  type: logits
   max_seq_length: 1024
   sft_config:
     output_dir: './results'
@@ -50,6 +49,8 @@ distill:
     resume_from_checkpoint: None  # Set to a path or True to resume from the latest checkpoint
     fp16: False
     bf16: True
+    max_grad_norm: 1.0
+    group_by_length: False
   distillation_args:
     temperature: 2.0
     alpha: 0.5

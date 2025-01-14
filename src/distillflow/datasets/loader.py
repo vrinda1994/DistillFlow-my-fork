@@ -1,18 +1,12 @@
-import json
-import os
 from functools import partial
-from typing import TypedDict, Optional, Dict, Any, Sequence, Literal, Union, List
+from typing import TypedDict, Optional, Dict, Any, List
 
 import numpy as np
-from datasets import DatasetDict, load_dataset, Dataset, IterableDataset, concatenate_datasets, interleave_datasets
-from transformers import PreTrainedTokenizer, training_args
-from transformers.utils import cached_file
+from datasets import DatasetDict, load_dataset, Dataset, concatenate_datasets, interleave_datasets
+from transformers import PreTrainedTokenizer
 
 from .dataset_args import DatasetArgs, DataArgs
 from ..common import get_logger
-from ..model.args import ModelArguments
-
-DATA_CONFIG = "dataset_info.json"
 
 logger = get_logger(__name__)
 
@@ -20,8 +14,7 @@ class DatasetModule(TypedDict):
     train_dataset: Optional[Dataset]
     eval_dataset: Optional[Dataset]
 
-
-def _load_dataset(
+def _load_single_dataset(
         dataset_args: DatasetArgs,
         data_args: DataArgs,
         tokenizer: PreTrainedTokenizer) -> Dataset:
@@ -37,7 +30,7 @@ def _load_dataset(
             trust_remote_code=True
         )
         # Shuffle dataset with a pre-seed
-        dataset = dataset.shuffle(seed=dataset_args.seed)
+        dataset = dataset.shuffle(seed=data_args.seed)
 
         # if data_args.streaming and (dataset_attr.load_from == "file"):  # faster than specifying streaming=True
         #     dataset = dataset.to_iterable_dataset()  # TODO: add num shards parameter
@@ -60,15 +53,22 @@ def _load_dataset(
 
         column_names = list(next(iter(dataset)).keys())
 
-        dataset = dataset.map(
-            partial(dataset_args.template.convert),
-            batched=False,
-            remove_columns=column_names,
-            load_from_cache_file=dataset_args.load_from_cache_file
-        )
+        if data_args.streaming:
+            dataset = dataset.map(
+                partial(dataset_args.template.convert),
+                batched=False,
+                remove_columns=column_names,
+            )
+        else:
+            dataset = dataset.map(
+                partial(dataset_args.template.convert),
+                batched=False,
+                remove_columns=column_names,
+                load_from_cache_file=dataset_args.load_from_cache_file
+            )
 
         if data_args.text_field is not None:
-            dataset = dataset.map(partial(to_text, data_args.text_field, tokenizer), batched=False, load_from_cache_file=dataset_args.load_from_cache_file, remove_columns=dataset.column_names)
+            dataset = dataset.map(partial(to_text, data_args.text_field, tokenizer), batched=False, remove_columns=dataset.column_names)
         return dataset
 
 def to_text(field_name, tokenizer: PreTrainedTokenizer, example: Dict[str, Any]) -> Dict[str, Any]:
@@ -90,6 +90,7 @@ def split_dataset(dataset: Dataset, data_args: DataArgs, seed: int) -> DatasetDi
         train_set = dataset.skip(int(data_args.test_size))
         return DatasetDict({"train": train_set, "validation": val_set})
     else:
+        dataset = dataset.shuffle(seed=seed)
         test_size = int(data_args.test_size) if data_args.test_size > 1 else data_args.test_size
         dataset = dataset.train_test_split(test_size=test_size, seed=seed)
         return DatasetDict({"train": dataset["train"], "validation": dataset["test"]})
@@ -101,21 +102,11 @@ def get_dataset(data_args: DataArgs,
     # Load and preprocess dataset
     # with training_args.main_process_first(desc="load dataset"):
     dataset = _get_merged_dataset(data_args.train_datasets, data_args, tokenizer)
+    dataset = dataset.shuffle(seed=data_args.seed)
     eval_dataset = None
     if data_args.eval_datasets:
         eval_dataset = _get_merged_dataset(data_args.eval_datasets, data_args, tokenizer)
 
-    # with training_args.main_process_first(desc="pre-process dataset"):
-    #     dataset = _get_preprocessed_dataset(
-    #         dataset, data_args, training_args, stage, template, tokenizer, processor, is_eval=False
-    #     )
-    #     eval_dataset = _get_preprocessed_dataset(
-    #         eval_dataset, data_args, training_args, stage, template, tokenizer, processor, is_eval=True
-    #     )
-    #
-    #     if data_args.val_size > 1e-6:
-    #         dataset_dict = split_dataset(dataset, data_args, seed=training_args.seed)
-    #     else:
     dataset_dict = {}
 
     if eval_dataset is None:
@@ -134,14 +125,6 @@ def get_dataset(data_args: DataArgs,
 
         dataset_dict = DatasetDict(dataset_dict)
 
-        # if data_args.tokenized_path is not None:
-        #     if training_args.should_save:
-        #         dataset_dict.save_to_disk(data_args.tokenized_path)
-        #         logger.info("Tokenized dataset saved at {}.".format(data_args.tokenized_path))
-        #         logger.info("Please restart the training with `tokenized_path: {}`.".format(data_args.tokenized_path))
-        #
-        #     sys.exit(0)
-
     dataset_module = {}
     if "train" in dataset_dict:
         dataset_module["train_dataset"] = dataset_dict["train"]
@@ -149,40 +132,32 @@ def get_dataset(data_args: DataArgs,
     if "validation" in dataset_dict:
         dataset_module["eval_dataset"] = dataset_dict["validation"]
 
-    if tokenize and tokenizer_function is not None:
+    if tokenize:
+        if tokenizer_function is None:
+            raise ValueError("Please pass a valid tokenizer function.")
 
         dataset_module["train_dataset"] = dataset_module["train_dataset"].map(tokenizer_function,
-                                                                              batched=True, num_proc=8,
-                                                                              remove_columns=["text"])
+                                              batched=True, num_proc=32, remove_columns=["text"])
 
         dataset_module["eval_dataset"] = dataset_module["eval_dataset"].map(tokenizer_function,
-                                                                              batched=True, num_proc=8,
-                                                                              remove_columns=["text"])
-
-
-    else:
-        print("Please pass a valid tokenizer function.")
-        exit()
-
-
+                                              batched=True, num_proc=32, remove_columns=["text"])
     return dataset_module
 
 def _get_merged_dataset(
     dataset_list: List[DatasetArgs],
     data_args: DataArgs,
     tokenizer: PreTrainedTokenizer
-) -> Optional[Union["Dataset", "IterableDataset"]]:
+) -> Optional[Dataset]:
     r"""
     Gets the merged datasets in the standard format.
     """
     datasets = []
     for dataset_attr in dataset_list:
-        datasets.append(_load_dataset(dataset_attr, data_args, tokenizer))
+        datasets.append(_load_single_dataset(dataset_attr, data_args, tokenizer))
 
     return merge_dataset(datasets, data_args, data_args.seed)
 
-def merge_dataset(all_datasets: List[Union["Dataset", "IterableDataset"]], data_args: "DataArgs"
-                  , seed) -> Union["Dataset", "IterableDataset"]:
+def merge_dataset(all_datasets: List[Dataset], data_args: DataArgs, seed) -> Dataset:
     r"""
     Merges multiple datasets to a unified dataset.
     """

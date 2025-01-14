@@ -1,6 +1,6 @@
 student_model:
 #  model_name_or_path: HuggingFaceTB/SmolLM2-135M-Instruct
-  model_name_or_path: Qwen/Qwen2-0.5B-Instruct
+  model_name_or_path: Qwen/Qwen2-1.5B-Instruct
   flash_attn: fa2
   use_unsloth: false
   output_attentions: false
@@ -8,7 +8,7 @@ student_model:
 
 teacher_model:
 #  model_name_or_path: HuggingFaceTB/SmolLM2-360M-Instruct
-  model_name_or_path: Qwen/Qwen2-1.5B-Instruct
+  model_name_or_path: Qwen/Qwen2-0.5B
   flash_attn: fa2
   use_unsloth: false
   output_attentions: false
@@ -17,17 +17,12 @@ teacher_model:
 #  quantization_method: gptq
 
 data:
-  seed: 0
+  seed: 42
   text_field: "text"
   train_datasets:
     - path: mlabonne/FineTome-100k
-      seed: 42
       template: sharegpt
     - path: horus-ai-labs/WebInstructSub-150K
-      seed: 42
-      template: sharegpt
-    - path: Crystalcareai/openhermes_200k_unfiltered
-      seed: 42
       template: sharegpt
   test_size: 0.1
   streaming: false
@@ -52,10 +47,10 @@ distill:
     weight_decay: 0.05
     warmup_ratio: 0.1
     lr_scheduler_type: 'cosine'
-    resume_from_checkpoint: None
+    resume_from_checkpoint: null
     fp16: false
     bf16: true
+    max_grad_norm: 1.0
   distillation_args:
     temperature: 2.0
     alpha: 0.5
-    stream: true

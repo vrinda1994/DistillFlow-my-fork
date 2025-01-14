@@ -19,6 +19,7 @@ from .finetuning_args import FinetuningArguments
 from .liger_kernel import apply_liger_kernel
 import torch.nn.functional as F
 from .quantization import configure_quantization, QuantizationMethod
+from .tokenizer import load_tokenizer
 from .unsloth import load_unsloth_pretrained_model
 from ..common.logger import get_logger
 from .args import ModelArguments
@@ -28,14 +29,12 @@ from ..common import count_parameters, infer_optim_dtype
 
 logger = get_logger(__name__)
 
-def _get_init_kwargs(model_args: ModelArguments) -> Dict[str, Any]:
+def init_kwargs(model_args: ModelArguments) -> Dict[str, Any]:
     r"""
     Gets arguments to load config/tokenizer/model.
 
     Note: including inplace operation of model_args.
     """
-    # skip_check_imports()
-    # model_args.model_name_or_path = try_download_model_from_other_hub(model_args)
     return {
         "trust_remote_code": True,
         "cache_dir": model_args.cache_dir,
@@ -43,69 +42,6 @@ def _get_init_kwargs(model_args: ModelArguments) -> Dict[str, Any]:
         "token": model_args.hf_hub_token,
         "torch_dtype": torch.bfloat16,
     }
-
-class TokenizerModule(TypedDict):
-    tokenizer: PreTrainedTokenizer
-    processor: Optional[ProcessorMixin]
-
-def patch_tokenizer(tokenizer: "PreTrainedTokenizer") -> None:
-    if "PreTrainedTokenizerBase" not in str(tokenizer._pad.__func__):
-        tokenizer._pad = MethodType(PreTrainedTokenizerBase._pad, tokenizer)
-
-def load_tokenizer(model_args: ModelArguments, template: str = None) -> TokenizerModule:
-    r"""
-    Loads pretrained tokenizer and optionally loads processor.
-
-    Note: including inplace operation of model_args.
-    """
-    init_kwargs = _get_init_kwargs(model_args)
-    try:
-        tokenizer = AutoTokenizer.from_pretrained(
-            model_args.model_name_or_path,
-            use_fast=model_args.use_fast_tokenizer,
-            split_special_tokens=model_args.split_special_tokens,
-            padding_side="right",
-            **init_kwargs,
-        )
-    except ValueError:  # try the fast one
-        tokenizer = AutoTokenizer.from_pretrained(
-            model_args.model_name_or_path,
-            use_fast=True,
-            padding_side="right",
-            **init_kwargs,
-        )
-    except Exception as e:
-        raise OSError("Failed to load tokenizer.") from e
-
-    if model_args.new_special_tokens is not None:
-        num_added_tokens = tokenizer.add_special_tokens(
-            dict(additional_special_tokens=model_args.new_special_tokens),
-            replace_additional_special_tokens=False,
-        )
-        logger.info("Add {} to special tokens.".format(",".join(model_args.new_special_tokens)))
-        if num_added_tokens > 0 and not model_args.resize_vocab:
-            model_args.resize_vocab = True
-            logger.warning("New tokens have been added, changed `resize_vocab` to True.")
-    else:
-        tokenizer.pad_token = tokenizer.eos_token
-
-    patch_tokenizer(tokenizer)
-    try:
-        processor = AutoProcessor.from_pretrained(model_args.model_name_or_path, **init_kwargs)
-        # config = AutoConfig.from_pretrained(model_args.model_name_or_path, **init_kwargs)
-        setattr(processor, "tokenizer", tokenizer)
-    except Exception as e:
-        logger.warning("Processor was not found: {}.".format(e))
-        processor = None
-
-    # Avoid load tokenizer, see:
-    # https://github.com/huggingface/transformers/blob/v4.40.0/src/transformers/models/auto/processing_auto.py#L324
-    if processor is not None and "Processor" not in processor.__class__.__name__:
-        processor = None
-
-    if template is not None:
-        tokenizer.chat_template = template
-    return {"tokenizer": tokenizer, "processor": processor}
 
 def _register_autoclass(config: PretrainedConfig, model: "PreTrainedModel", tokenizer: "PreTrainedTokenizer"):
     if "AutoConfig" in getattr(config, "auto_map", {}):
@@ -356,13 +292,12 @@ def load_model(
         finetuning_args: FinetuningArguments,
         is_trainable: bool = False,
 ) -> PreTrainedModel:
-    tokenizer = load_tokenizer(model_args)["tokenizer"]
-    init_kwargs = _get_init_kwargs(model_args)
+    tokenizer = load_tokenizer(model_args)
+    init_kwargs = init_kwargs(model_args)
     config = AutoConfig.from_pretrained(model_args.model_name_or_path, **init_kwargs)
-    # configure_quantization(config, tokenizer, model_args, init_kwargs)
     _patch_config(config, tokenizer, model_args, init_kwargs, is_trainable)
 
-    # TODO: Good optimization for huggingface models: https://github.com/linkedin/Liger-Kernel
+    # More details here: https://github.com/linkedin/Liger-Kernel
     apply_liger_kernel(config, model_args, is_trainable, require_logits=True)
 
     model = None
