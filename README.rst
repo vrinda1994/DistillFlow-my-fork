@@ -16,6 +16,10 @@ Overview
 
 DistillFlow is an open-source toolkit designed to simplify and scale the distillation of large language models (LLMs) into smaller, more efficient models. It provides a flexible pipeline for distillation, fine-tuning, and experimentation across multiple GPUs, with support for dynamic resource allocation and easy integration of custom techniques.
 
+**What is distillation?**
+
+Distillation is the process of transferring knowledge from large machine learning models to small models. The large model is often called the teacher model while the smaller model is called the student model.
+
 DistillFlow is maintained by HorusAILabs_.
 
 .. _HorusAILabs: https://www.horusailabs.com/
@@ -49,13 +53,7 @@ Requirements
 Install
 =======
 
-The quick way:
-
-.. code-block:: bash
-
-    pip install distillflow
-
-Or clone the repository:
+Clone the repository:
 
 .. code-block:: bash
 
