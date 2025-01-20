@@ -62,8 +62,8 @@ def main():
     teacher_model = load_model(teacher_model_args, finetuning_args=FinetuningArguments(), is_trainable=False)
 
     #TODO: hugging face recommends another way for placing models on a device. Check this again!
-    # student_model = student_model.to(device)
-    # teacher_model = teacher_model.to(device)
+    student_model = student_model.to(device)
+    teacher_model = teacher_model.to(device)
 
     # Load data arguments
     train_datasets = [
@@ -80,7 +80,7 @@ def main():
 
     # Load tokenizer and dataset
     tokenizer_template = config.get("tokenizer", {}).get("template", None)
-    tokenizer = load_tokenizer(student_model_args, template=tokenizer_template)["tokenizer"]
+    tokenizer = load_tokenizer(student_model_args, template=tokenizer_template)
 
     print(tokenizer)
 

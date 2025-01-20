@@ -1,12 +1,25 @@
 from types import MethodType
+from typing import Dict, Any
 
 from transformers import AutoTokenizer, PreTrainedTokenizerBase, PreTrainedTokenizer
 
 from distillflow.common import get_logger
 from distillflow.model.args import ModelArguments
-from distillflow.model.loader import init_kwargs
 
 logger = get_logger(__name__)
+
+def tokenizer_init_kwargs(model_args: ModelArguments) -> Dict[str, Any]:
+    r"""
+    Gets arguments to load config/tokenizer/model.
+
+    Note: including inplace operation of model_args.
+    """
+    return {
+        "trust_remote_code": True,
+        "cache_dir": model_args.cache_dir,
+        "revision": model_args.model_revision,
+        "token": model_args.hf_hub_token,
+    }
 
 def load_tokenizer(model_args: ModelArguments, template: str = None) -> PreTrainedTokenizer:
     try:
@@ -14,7 +27,7 @@ def load_tokenizer(model_args: ModelArguments, template: str = None) -> PreTrain
             model_args.model_name_or_path,
             split_special_tokens=model_args.split_special_tokens,
             padding_side="right",
-            **init_kwargs(model_args),
+            **tokenizer_init_kwargs(model_args),
         )
     except Exception as e:
         raise OSError("Failed to load tokenizer.") from e

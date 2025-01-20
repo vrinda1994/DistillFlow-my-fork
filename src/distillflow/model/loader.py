@@ -29,7 +29,7 @@ from ..common import count_parameters, infer_optim_dtype
 
 logger = get_logger(__name__)
 
-def init_kwargs(model_args: ModelArguments) -> Dict[str, Any]:
+def _get_init_kwargs(model_args: ModelArguments) -> Dict[str, Any]:
     r"""
     Gets arguments to load config/tokenizer/model.
 
@@ -293,7 +293,7 @@ def load_model(
         is_trainable: bool = False,
 ) -> PreTrainedModel:
     tokenizer = load_tokenizer(model_args)
-    init_kwargs = init_kwargs(model_args)
+    init_kwargs = _get_init_kwargs(model_args)
     config = AutoConfig.from_pretrained(model_args.model_name_or_path, **init_kwargs)
     _patch_config(config, tokenizer, model_args, init_kwargs, is_trainable)
 
